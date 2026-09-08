@@ -1,0 +1,8 @@
+# Transformations
+pandas==2.3.3
+
+# Pipeline Orchestration
+prefect==3.5.0
+
+# Unit Testing
+pytest==8.4.2
