@@ -9,7 +9,7 @@ Act, Assert (AAA).
 import pandas as pd
 import pytest
 
-from transform import clean_customers
+from transform import clean_customers, clean_orders
 
 
 # ---------------------------------------------------------------------------
@@ -112,3 +112,192 @@ def test_clean_customers_appends_unknown_dummy_row():
     assert len(unknown_rows) == 1
     assert unknown_rows.iloc[0]["full_name"] == "Unknown"
     assert pd.isna(unknown_rows.iloc[0]["signup_date"])
+
+# ---------------------------------------------------------------------------
+# clean_orders
+# ---------------------------------------------------------------------------
+
+
+def test_clean_orders_filters_out_non_positive_amounts():
+    # Arrange
+    df_in = pd.DataFrame(
+        [
+            {"order_id": 1, "customer_id": 1, "order_date": "2023-05-01",
+             "currency": "USD", "total_amount": 100},
+            {"order_id": 2, "customer_id": 1, "order_date": "2023-05-01",
+             "currency": "USD", "total_amount": 0},
+            {"order_id": 3, "customer_id": 1, "order_date": "2023-05-01",
+             "currency": "USD", "total_amount": -50},
+        ]
+    )
+    rates_df = pd.DataFrame(columns=["currency", "date", "rate_to_usd"])
+    valid_customer_ids = [1]
+
+    # Act
+    df_out = clean_orders(df_in, rates_df, valid_customer_ids)
+
+    # Assert
+    assert set(df_out["order_id"]) == {1}
+
+
+def test_clean_orders_remaps_orphan_customer_id_to_negative_one():
+    # Arrange
+    df_in = pd.DataFrame(
+        [
+            {"order_id": 1, "customer_id": 99, "order_date": "2023-05-01",
+             "currency": "USD", "total_amount": 100},
+        ]
+    )
+    rates_df = pd.DataFrame(columns=["currency", "date", "rate_to_usd"])
+    valid_customer_ids = [1, 2]  # 99 is not a valid customer
+
+    # Act
+    df_out = clean_orders(df_in, rates_df, valid_customer_ids)
+
+    # Assert
+    assert df_out.iloc[0]["customer_id"] == -1
+
+
+def test_clean_orders_usd_amount_uses_exact_date_rate_match():
+    # Arrange
+    df_in = pd.DataFrame(
+        [
+            {"order_id": 1, "customer_id": 1, "order_date": "2023-05-03",
+             "currency": "EUR", "total_amount": 100},
+        ]
+    )
+    rates_df = pd.DataFrame(
+        [
+            {"currency": "EUR", "date": "2023-05-03", "rate_to_usd": 1.1},
+        ]
+    )
+    valid_customer_ids = [1]
+
+    # Act
+    df_out = clean_orders(df_in, rates_df, valid_customer_ids)
+
+    # Assert
+    assert df_out.iloc[0]["usd_amount"] == pytest.approx(110.0)
+
+
+def test_clean_orders_usd_amount_uses_locf_when_exact_date_missing():
+    # Arrange: order is on 05-10, but rates only exist up to 05-05.
+    df_in = pd.DataFrame(
+        [
+            {"order_id": 1, "customer_id": 1, "order_date": "2023-05-10",
+             "currency": "EUR", "total_amount": 100},
+        ]
+    )
+    rates_df = pd.DataFrame(
+        [
+            {"currency": "EUR", "date": "2023-05-04", "rate_to_usd": 1.05},
+            {"currency": "EUR", "date": "2023-05-05", "rate_to_usd": 1.10},
+        ]
+    )
+    valid_customer_ids = [1]
+
+    # Act
+    df_out = clean_orders(df_in, rates_df, valid_customer_ids)
+
+    # Assert: should carry forward the latest available rate (05-05 = 1.10).
+    assert df_out.iloc[0]["usd_amount"] == pytest.approx(110.0)
+
+
+def test_clean_orders_usd_amount_falls_back_to_one_when_no_prior_rate():
+    # Arrange: no rate exists on or before the order_date at all.
+    df_in = pd.DataFrame(
+        [
+            {"order_id": 1, "customer_id": 1, "order_date": "2023-04-01",
+             "currency": "EUR", "total_amount": 100},
+        ]
+    )
+    rates_df = pd.DataFrame(
+        [
+            {"currency": "EUR", "date": "2023-05-01", "rate_to_usd": 1.1},
+        ]
+    )
+    valid_customer_ids = [1]
+
+    # Act
+    df_out = clean_orders(df_in, rates_df, valid_customer_ids)
+
+    # Assert
+    assert df_out.iloc[0]["usd_amount"] == 100.0
+
+
+def test_clean_orders_null_order_date_usd_currency_uses_amount_as_is():
+    # Arrange
+    df_in = pd.DataFrame(
+        [
+            {"order_id": 117, "customer_id": 1, "order_date": None,
+             "currency": "USD", "total_amount": 250},
+        ]
+    )
+    rates_df = pd.DataFrame(columns=["currency", "date", "rate_to_usd"])
+    valid_customer_ids = [1]
+
+    # Act
+    df_out = clean_orders(df_in, rates_df, valid_customer_ids)
+
+    # Assert
+    assert df_out.iloc[0]["usd_amount"] == 250.0
+
+
+def test_clean_orders_null_order_date_non_usd_falls_back_to_one():
+    # Arrange
+    df_in = pd.DataFrame(
+        [
+            {"order_id": 118, "customer_id": 1, "order_date": None,
+             "currency": "EUR", "total_amount": 250},
+        ]
+    )
+    rates_df = pd.DataFrame(
+        [
+            {"currency": "EUR", "date": "2023-05-01", "rate_to_usd": 1.1},
+        ]
+    )
+    valid_customer_ids = [1]
+
+    # Act
+    df_out = clean_orders(df_in, rates_df, valid_customer_ids)
+
+    # Assert: no order_date to join on -> fallback rate 1.0
+    assert df_out.iloc[0]["usd_amount"] == 250.0
+
+
+def test_clean_orders_missing_currency_assumed_usd():
+    # Arrange: currency is NULL (missing) -> spec says assume USD.
+    df_in = pd.DataFrame(
+        [
+            {"order_id": 107, "customer_id": 1, "order_date": "2023-05-05",
+             "currency": None, "total_amount": 120},
+        ]
+    )
+    rates_df = pd.DataFrame(
+        [
+            {"currency": "EUR", "date": "2023-05-05", "rate_to_usd": 1.1},
+        ]
+    )
+    valid_customer_ids = [1]
+
+    # Act
+    df_out = clean_orders(df_in, rates_df, valid_customer_ids)
+
+    # Assert
+    assert df_out.iloc[0]["usd_amount"] == pytest.approx(120.0)
+
+
+def test_clean_orders_empty_dataframe_returns_empty_result():
+    # Arrange
+    df_in = pd.DataFrame(
+        columns=["order_id", "customer_id", "order_date", "currency", "total_amount"]
+    )
+    rates_df = pd.DataFrame(columns=["currency", "date", "rate_to_usd"])
+    valid_customer_ids = []
+
+    # Act
+    df_out = clean_orders(df_in, rates_df, valid_customer_ids)
+
+    # Assert
+    assert df_out.empty
+    assert "usd_amount" in df_out.columns
