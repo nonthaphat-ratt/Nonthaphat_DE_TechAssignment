@@ -85,6 +85,7 @@ def clean_orders(
       2) Remap orphan customer_id (not present in valid_customer_ids) to -1.
       3) Convert total_amount to USD (usd_amount):
          - currency == 'USD' or currency is NULL/missing -> usd_amount = total_amount (rate 1.0)
+         - currency is NULL/missing -> Impute missing currency with 'USD' per spec
          - order_date is NULL         -> cannot join on date -> fallback rate 1.0
          - exact-date rate exists     -> use it
          - no exact-date rate exists  -> LOCF: use the latest available rate
@@ -113,6 +114,8 @@ def clean_orders(
     df["customer_id"] = df["customer_id"].where(
         df["customer_id"].isin(valid_customer_ids), -1
     )
+    # 3) Impute missing currency with 'USD' per spec
+    df["currency"] = df["currency"].fillna("USD")
 
     # Parse dates for the as-of join.
     df["order_date"] = pd.to_datetime(df["order_date"], errors="coerce")
