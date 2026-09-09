@@ -48,3 +48,34 @@
   - **Filter order** ที่ `total_amount ≤ 0` ออกจาก `fct_orders` ทั้งหมด
   - **Unknown Dimension Pattern**: เพิ่ม dummy record (customer_id = -1, full_name = 'Unknown') เข้าไปใน dim_customers โดยตรง แล้ว remap customer_id ของ order ที่ orphan (106, 118) ใน fct_orders ให้ชี้ไปที่ -1 แทนการตัดทิ้งหรือปล่อยเป็น NULL 
   - **LOCF (Last Observation Carried Forward)**: เมื่อหา exchange rate ตรงวันที่ไม่เจอ ให้ใช้ rate ล่าสุดที่มีอยู่ก่อนหน้าวันที่ order นั้น (As-Of Join) แทนการปล่อยให้เป็น `NULL`
+
+---
+
+### Analytical Query & Customer Lifetime Value (CLV) Report
+
+สรุปผลลัพธ์และการวิเคราะห์เชิงธุรกิจจากการรันคำสั่ง `clv_report.sql`
+
+### 1. Business Logic & Implementation Decisions
+- **Revenue Recognition (คำนวณเฉพาะยอดเงินจริง)**: กรองคำนวณเฉพาะคำสั่งซื้อที่มีสถานะ `status = 'COMPLETED'` เท่านั้น ไม่นับรวมคำสั่งซื้อที่ถูกยกเลิก (`CANCELLED`) หรือรอดำเนินการ (`PENDING`) เพื่อให้ตัวเลขสะท้อนรายได้ที่เกิดขึ้นจริงตามหลักบัญชี
+- **Retention of All Customers (LEFT JOIN)**: ใช้ `LEFT JOIN` จากตาราง `dim_customers` เพื่อให้ลูกค้ารายใหม่หรือผู้ที่ยังไม่เคยสั่งซื้อสำเร็จ (เช่น Ian Malcolm, Jane Doe) ยังคงปรากฏในรายงานด้วยยอดคำสั่งซื้อ `0` และ CLV `$0.00` ซึ่งเป็นข้อมูลสำคัญสำหรับทีม CRM ในการทำ Re-engagement Campaign
+- **Revenue Preservation via Unknown Dimension**: คำสั่งซื้อที่เป็น Orphan Record ถูกจัดสรรเข้ากลุ่ม `Unknown` (`customer_id = -1`) ทำให้รายได้รวมจำนวน $705.50 ไม่สูญหายจากงบการเงิน และแสดง `customer_cohort` เป็น `'Unknown'` อย่างชัดเจน
+- **Cohort Segmentation**: จัดกลุ่มลูกค้าตามเดือนที่ลงทะเบียน (`strftime('%Y-%m', signup_date)`) ช่วยให้ฝ่ายธุรกิจสามารถติดตามและเปรียบเทียบพฤติกรรมการซื้อซ้ำของลูกค้าในแต่ละช่วงเวลาได้อย่างแม่นยำ
+
+### 2. Output Summary & Business Insights
+| customer_id | full_name | total_orders_placed | lifetime_value_usd | customer_cohort |
+|---|---|:---:|:---:|:---:|
+| 1 | Alice Smith | 3 | $1,998.00 | 2023-06 |
+| -1 | Unknown | 2 | $705.50 | Unknown |
+| 6 | Fiona Gallagher | 2 | $525.00 | 2023-05 |
+| 4 | Diana Prince | 2 | $389.50 | 2023-04 |
+| 5 | Evan Wright | 2 | $230.49 | 2023-04 |
+| 2 | Bob Jones | 1 | $220.00 | 2023-09 |
+| 3 | Charlie Brown | 1 | $180.00 | 2023-03 |
+| 8 | Hannah Abbott | 1 | $98.34 | 2023-07 |
+| 7 | George Costanza | 1 | $40.00 | 2023-06 |
+| 9 | Ian Malcolm | 0 | $0.00 | 2023-08 |
+| 10 | Jane Doe | 0 | $0.00 | 2023-09 |
+
+- **Top Spender**: Alice Smith ครองอันดับ 1 ด้วย CLV สูงสุดที่ $1,998.00 (3 คำสั่งซื้อ)
+- **Data Leakage Alert**: กลุ่ม `Unknown` มียอดรวมสูงเป็นอันดับที่ 2 ($705.50) ชี้ให้เห็นว่าระบบ Transaction หน้าร้านยังมีปัญหา Data Integrity ที่ต้องวาง Data Validation ป้องกันการบันทึก Orphan Record ในอนาคต
+- **Conversion Opportunity**: ลูกค้า 2 ราย (Ian Malcolm และ Jane Doe) ยังไม่มีการสั่งซื้อสำเร็จ สามารถส่งต่อข้อมูลให้ทีม Growth/Marketing ทำ Conversion หรือ Onboarding Campaign ต่อได้ทันที
