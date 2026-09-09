@@ -84,7 +84,7 @@ def clean_orders(
       1) Filter out total_amount <= 0 (system-error orders).
       2) Remap orphan customer_id (not present in valid_customer_ids) to -1.
       3) Convert total_amount to USD (usd_amount):
-         - currency == 'USD'          -> usd_amount = total_amount (rate 1.0)
+         - currency == 'USD' or currency is NULL/missing -> usd_amount = total_amount (rate 1.0)
          - order_date is NULL         -> cannot join on date -> fallback rate 1.0
          - exact-date rate exists     -> use it
          - no exact-date rate exists  -> LOCF: use the latest available rate
@@ -120,7 +120,8 @@ def clean_orders(
     rates_df = rates_df.sort_values("date")
 
     def _resolve_rate(row) -> float:
-        if row["currency"] == "USD":
+        if row["currency"] == "USD" or pd.isna(row["currency"]):
+            # If missing currency, then assume USD per spec
             return 1.0
 
         if pd.isna(row["order_date"]):
