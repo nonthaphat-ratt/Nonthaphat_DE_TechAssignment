@@ -285,6 +285,7 @@ def test_clean_orders_missing_currency_assumed_usd():
 
     # Assert
     assert df_out.iloc[0]["usd_amount"] == pytest.approx(120.0)
+    assert df_out.iloc[0]["currency"] == "USD"
 
 
 def test_clean_orders_empty_dataframe_returns_empty_result():
