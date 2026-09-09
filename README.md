@@ -51,7 +51,7 @@
 
 ---
 
-### Analytical Query & Customer Lifetime Value (CLV) Report
+## Analytical Query & Customer Lifetime Value (CLV) Report
 
 สรุปผลลัพธ์และการวิเคราะห์เชิงธุรกิจจากการรันคำสั่ง `clv_report.sql`
 
