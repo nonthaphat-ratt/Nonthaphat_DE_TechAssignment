@@ -43,3 +43,8 @@ SELECT o.order_id, o.order_date, o.currency
 FROM vw_raw_orders o
 LEFT JOIN vw_exchange_rates e ON o.currency = e.currency AND o.order_date = e.date
 WHERE o.currency IS NOT NULL AND o.currency <> 'USD' AND e.rate_to_usd IS NULL;
+
+-- 7) orders ที่ currency เป็น NULL โดยตรง (คนละกรณีกับ order_date เป็น NULL ในข้อ 2)
+SELECT order_id, customer_id, order_date, currency, total_amount
+FROM vw_raw_orders
+WHERE currency IS NULL;
